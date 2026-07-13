@@ -1,0 +1,43 @@
+# Render Blueprint: one web service + managed Postgres + Redis.
+# After first deploy, run a one-off `python -m ingestion.run_ingest` (Render Shell)
+# to populate the database.
+services:
+  - type: web
+    name: docsgpt
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    envVars:
+      - key: EMBEDDING_BACKEND
+        value: openai
+      - key: STORE_BACKEND
+        value: postgres
+      - key: LLM_BACKEND
+        value: openai
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_API_KEY
+        sync: false          # set in the Render dashboard
+      - key: DATABASE_URL
+        fromDatabase:
+          name: docsgpt-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: docsgpt-redis
+          property: connectionString
+      # Optional tracing — set these in the dashboard to enable Langfuse:
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+
+  - type: redis
+    name: docsgpt-redis
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: docsgpt-db
+    plan: basic-256mb        # a plan that supports the pgvector extension

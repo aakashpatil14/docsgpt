@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Unit tests (fast gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lightweight test deps
+        run: pip install pytest python-dotenv
+      - name: Run deterministic unit tests
+        run: pytest -q tests/test_fusion.py tests/test_metrics.py
+
+  rag-eval:
+    name: RAGAS quality gate (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: docsgpt
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      EMBEDDING_BACKEND: openai
+      STORE_BACKEND: postgres
+      LLM_BACKEND: openai
+      LLM_MODEL: gpt-4o-mini
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/docsgpt
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MAX_ISSUE_PAGES: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Ingest a small corpus
+        run: python -m ingestion.run_ingest
+      - name: Run RAGAS evaluation
+        run: python -m experiments.ragas_eval
