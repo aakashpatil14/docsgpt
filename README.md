@@ -15,8 +15,8 @@ locally without keys **or** deploys with the production stack.
 | Vector store | PostgreSQL + pgvector | ChromaDB (file-based) |
 | Keyword search | Postgres `tsvector` | in-memory `rank-bm25` |
 
-Shared: **cross-encoder reranker**, **LangChain** chunking, **FastAPI** (later),
-**Ollama/OpenAI** LLM (later).
+Shared: **cross-encoder reranker**, **LangChain** chunking, **FastAPI** API,
+**Ollama/OpenAI** LLM.
 
 Backends are selected in `.env`:
 
@@ -75,7 +75,8 @@ Prints chunk counts by source and the top-5 matches for a sample query.
 Three retrieval strategies are implemented in `retrieval/`:
 
 - `vector` — dense similarity only
-- `hybrid` — dense + keyword (BM25) fused with Reciprocal Rank Fusion
+- `hybrid` — dense + keyword fused with Reciprocal Rank Fusion (PostgreSQL
+  uses `tsvector`/`ts_rank_cd`; the local Chroma path uses BM25)
 - `hybrid_rerank` — hybrid candidates re-scored by a cross-encoder
 
 Run the benchmark over the golden set to compare them:
@@ -106,7 +107,7 @@ uvicorn app:app --reload
 Endpoints:
 
 - `GET /health` — reports active backends (embedding / store / llm)
-- `POST /ask` — `{ "question": "..." }` → `{ answer, citations, used_chunks }`
+- `POST /ask` — `{ "question": "..." }` → `{ answer, citations, used_chunks, cache_hit, latency_ms }`
 - `GET /` — chat UI
 
 LLM backend is pluggable via `.env`:
@@ -118,6 +119,17 @@ LLM_MODEL=gpt-4o-mini  # or e.g. llama3.1 for ollama
 
 Answers are constrained to the retrieved context and reply
 "I don't know based on the provided documentation." when unsupported.
+
+Each citation is `{ "id": 1, "title": "...", "url": "..." }`. The prompt,
+API, and UI share these IDs: multiple chunks from one URL use one number.
+Clients should display `citation.id`, not renumber the array. IDs are scoped
+to an individual answer. If no chunks have source URLs, the API returns the
+unknown-answer response without calling the LLM. This deterministic guard
+does not establish that every model-generated claim is supported by a source;
+semantic citation support still needs evaluation.
+
+Questions are trimmed and must contain 1–4000 characters. Supported strategies
+are `vector`, `hybrid`, and `hybrid_rerank`; invalid requests return HTTP 422.
 
 ### Run with Docker
 
@@ -143,17 +155,25 @@ python -m experiments.ragas_eval      # prints scores, writes data/ragas_results
 Metrics: **Faithfulness**, **ResponseRelevancy**, **ContextPrecision**,
 **ContextRecall**. Target: faithfulness ≥ 0.85, context recall ≥ 0.80.
 
-**2. Fast deterministic gate (CI)** — pure unit tests for the RRF fusion and
-metrics, plus a retrieval regression test that asserts Hit@5 ≥ 0.70 when a
-corpus is present.
+**2. Fast deterministic gate (CI)** — tests for RRF fusion, metrics, citation
+mapping, cache expiry/versioning, and the `/ask` API contract. Retrieval and
+generation are replaced with deterministic fixtures in API tests; these tests
+do not establish live retrieval or model quality.
 
 ```bash
-pytest -q
+pip install -r requirements-test.txt
+python -m pytest -q -m "not integration"
 ```
+
+With a configured model backend and ingested corpus, run
+`python -m pytest -q -m integration` for the Hit@5 ≥ 0.70 retrieval regression
+check. It skips if the corpus is unavailable.
 
 **CI** (`.github/workflows/ci.yml`): the `unit` job runs the fast gate on every
 push/PR; the `rag-eval` job runs the full RAGAS eval on manual dispatch (spins
 up a pgvector service, needs the `OPENAI_API_KEY` secret).
+The manual RAGAS job reports scores; it does not yet enforce quality thresholds.
+The benchmark table above remains unmeasured until a real corpus run is recorded.
 
 ## Deploy + observability (Phase 6)
 
@@ -161,6 +181,15 @@ up a pgvector service, needs the `OPENAI_API_KEY` secret).
 to use Redis in production; otherwise a small in-process cache is used. Any
 cache error degrades to a miss (never breaks a request). `/ask` returns
 `cache_hit` and `latency_ms`.
+
+Both Redis and the in-process cache respect `CACHE_TTL`. Answer keys include
+the prompt version and backend/retrieval settings. After refreshing the corpus,
+change `CORPUS_VERSION` in the API environment and restart all workers to avoid
+reusing old answers. This version change is currently manual; ingestion does
+not automatically update it. Increment `PROMPT_VERSION` when changing prompts.
+
+See [the project brief](docs/PROJECT_BRIEF.md) for the next development and
+evaluation milestones.
 
 **Tracing** — set `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` to trace every
 `/ask` (question, retrieved sources, answer, latency, cache hit). No-op when

@@ -96,10 +96,10 @@
       lbl.className = "label";
       lbl.textContent = "Sources:";
       c.appendChild(lbl);
-      citations.forEach((cit, i) => {
+      citations.forEach((cit) => {
         const a = document.createElement("a");
         a.href = cit.url; a.target = "_blank";
-        a.textContent = `[${i + 1}] ${cit.title || cit.url}`;
+        a.textContent = `[${cit.id}] ${cit.title || cit.url}`;
         c.appendChild(a);
       });
       wrap.appendChild(c);
