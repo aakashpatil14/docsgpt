@@ -20,8 +20,10 @@ def _corpus_ready():
         return False
 
 
-@pytest.mark.skipif(not _corpus_ready(), reason="no ingested corpus available")
+@pytest.mark.integration
 def test_hybrid_rerank_hit_at_5_above_threshold():
+    if not _corpus_ready():
+        pytest.skip("no ingested corpus available")
     from experiments.compare_retrieval import evaluate
 
     hit, _mrr = evaluate("hybrid_rerank", top_k=config.TOP_K)

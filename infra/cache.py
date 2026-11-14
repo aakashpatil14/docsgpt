@@ -6,6 +6,8 @@ a caching problem can never break a request.
 """
 import hashlib
 import json
+import time
+from threading import Lock
 
 import config
 
@@ -16,14 +18,25 @@ _MEM_MAX = 1000
 class _MemoryCache:
     def __init__(self):
         self._d = {}
+        self._lock = Lock()
 
     def get(self, key):
-        return self._d.get(key)
+        with self._lock:
+            item = self._d.get(key)
+            if item is None:
+                return None
+            value, expires_at = item
+            if expires_at is not None and time.monotonic() >= expires_at:
+                del self._d[key]
+                return None
+            return value
 
     def set(self, key, value, ex=None):
-        if len(self._d) >= _MEM_MAX:
-            self._d.pop(next(iter(self._d)))
-        self._d[key] = value
+        expires_at = None if ex is None else time.monotonic() + ex
+        with self._lock:
+            if key not in self._d and len(self._d) >= _MEM_MAX:
+                self._d.pop(next(iter(self._d)))
+            self._d[key] = (value, expires_at)
 
 
 def _client():

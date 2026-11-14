@@ -4,7 +4,9 @@ import time
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
 
 import config
 from generation.answer import answer_question
@@ -16,11 +18,17 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
 
 class AskRequest(BaseModel):
-    question: str
-    strategy: str = config.DEFAULT_STRATEGY
+    question: str = Field(min_length=1, max_length=4000)
+    strategy: Literal["vector", "hybrid", "hybrid_rerank"] = config.DEFAULT_STRATEGY
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def strip_question(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 class Citation(BaseModel):
+    id: int = Field(ge=1)
     title: str
     url: str
 

@@ -15,9 +15,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install lightweight test deps
-        run: pip install pytest python-dotenv
+        run: pip install -r requirements-test.txt
       - name: Run deterministic unit tests
-        run: pytest -q tests/test_fusion.py tests/test_metrics.py
+        run: python -m pytest -q -m "not integration"
 
   rag-eval:
     name: RAGAS quality gate (manual)

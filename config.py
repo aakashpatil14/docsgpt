@@ -71,6 +71,8 @@ DEFAULT_STRATEGY = "hybrid_rerank"
 CACHE_ENABLED = os.environ.get("CACHE_ENABLED", "true").lower() == "true"
 REDIS_URL = os.environ.get("REDIS_URL")
 CACHE_TTL = int(os.environ.get("CACHE_TTL", "86400"))  # seconds
+# Bump after every successful corpus refresh; API workers must use the new value.
+CORPUS_VERSION = os.environ.get("CORPUS_VERSION", "initial")
 
 # --- observability: Langfuse tracing (Phase 6) ---
 # Tracing is a no-op unless both keys are set.
